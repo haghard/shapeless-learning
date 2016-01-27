@@ -2,12 +2,12 @@ package io.scalac
 
 import shapeless.{HNil, ::}
 
-import scala.concurrent.{Await, ExecutionContext, Future, Promise}
+import scala.concurrent.{ Await, Future, Promise}
 import scala.concurrent.ExecutionContext.Implicits.global
 
 package object futures {
 
-  class FailFastFuture extends scalaz.Applicative[Future] {
+  class FailFastFutureApplicative extends scalaz.Applicative[Future] {
     override def point[A](a: => A): Future[A] = Future(a)
 
     override def ap[A, B](fa: => Future[A])(f: => Future[(A) => B]): Future[B] = {
@@ -21,40 +21,51 @@ package object futures {
       promise.future
     }
   }
-
-  class FutureInstance(implicit ec: ExecutionContext) extends scalaz.Monad[Future] {
-    override def point[A](a: => A): Future[A] = Future(a)
-
-    override def bind[A, B](fa: Future[A])(f: (A) => Future[B]): Future[B] = fa flatMap f
-  }
-
 }
 
 object FfRunner extends App {
-
+  import futures._
   import shapeless._
   import shapeless.contrib.scalaz._
 
   import scalaz.Applicative
   import scalaz.std.option._
 
+  /*
+  implicit def monadInstanses[A](implicit ex: ExecutionContext) =
+    new Monad[({type f[a] = FailableFuture[Exception, a]})#f] {
 
-  implicit val ff = new futures.FailFastFuture
+      override def point[A](a: => A): FailableFuture[Exception, A] =
+        FailableFuture { Future { a.successNel[Exception] } }
+
+      override def bind[A, B](fa: FailableFuture[Exception, A])
+                             (f: (A) => FailableFuture[Exception, B]): FailableFuture[Exception, B] = {
+        fa.flatMap[B](f)
+      }
+
+    }
+  */
+
+  implicit val ff = new futures.FailFastFutureApplicative
 
   val key = Future {
+    println("run  key")
     Thread.sleep(5000)
     1
   }
 
   val value = Future {
-    //Thread.sleep(1000)
-    throw new Exception("Failure")
-    "a"
+    println("run  value")
+    Thread.sleep(1000)
+    throw new Exception("Failure during value calculation")
   }
 
-  val r = shapeless.contrib.scalaz.sequence(key :: value :: HNil).map {
+
+  val r = scalaz.Applicative[Future].apply2(key, value) { case (a,b) => s"kv: $a - $b" }
+
+  /*val r = shapeless.contrib.scalaz.sequence(key :: value :: HNil).map {
     case a :: b :: HNil => s"kv: $a - $b"
-  }
+  }*/
 
   import scala.concurrent.duration._
   println(Await.result(r, 7 second))
